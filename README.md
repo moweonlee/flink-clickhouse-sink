@@ -15,11 +15,11 @@ It has two triggers for loading data:
 _by timeout_ and _by buffer size_.
 
 ##### Version map
-|flink    |flink-clickhouse-sink | 
-|:-------:|:--------------------:| 
-|1.3.*    |1.0.0                 |
-|1.9.*    |1.3.1                 |
-
+|flink    | flink-clickhouse-sink | 
+|:-------:|:---------------------:| 
+|1.3.*    |         1.0.0         |
+|1.9.*    |         1.3.1         |
+|1.9.*    |         1.4.*         |
 
 ### Install
 
@@ -61,40 +61,8 @@ common and for each sink in you operators chain.
  `clickhouse.sink.max-buffer-size`- buffer size.
 
 ### In code
-The main thing: the clickhouse-sink works with events in string 
-(ClickHouse insert format, like CSV) format.
-You have to convert your event to csv format (like usual insert in database).
 
-For example, you have event-pojo:
- ```java
-class A {
-    public final String str;
-    public final int integer;
-    
-    public A(String str, int i){
-        this.str = str;
-        this.integer = i;
-    }
-}
-```
-You have to convert this pojo like this:
-```java
-public static String convertToCsv(A a) {
-    StringBuilder builder = new StringBuilder();
-    builder.append("(");
-    
-    // add a.str
-    builder.append("'");
-    builder.append(a.str);
-    builder.append("', ");
-    
-    // add a.intger
-    builder.append(String.valueOf(a.integer));
-    builder.append(" )");
-    return builder.toString();
-}
-```
-And then add record to sink.
+#### Configuration: global parameters
 
 You have to add global parameters for Flink environment:
 ```java
@@ -120,27 +88,74 @@ environment.getConfig().setGlobalJobParameters(parameters);
 
 ```
 
-And add your sink like this:
-```java
-// create converter
-public YourEventConverter {
-    String toClickHouseInsertFormat (YourEvent yourEvent){
-        String chFormat = ...;
-        ....
-        return chFormat;
+#### Converter
+
+The main thing: the clickhouse-sink works with events in string
+(ClickHouse insert format, like CSV) format.
+You have to convert your event to csv format (like usual insert in database).
+
+For example, you have event-pojo:
+ ```java
+class A {
+    public final String str;
+    public final int integer;
+    
+    public A(String str, int i){
+        this.str = str;
+        this.integer = i;
     }
 }
+```
+You have to implement a converter to csv, using
+```java
 
-// create props for sink
+public interface ClickHouseSinkConverter<T> {
+ ...
+}
+
+Example:
+
+```
+You have to convert this pojo like this:
+
+```java
+import ru.ivi.opensource.flinkclickhousesink.ClickHouseSinkConverter;
+
+public class YourEventConverter implements ClickHouseSinkConverter<A>{
+    
+    @Override
+    public String convert(A record){
+     StringBuilder builder = new StringBuilder();
+     builder.append("(");
+
+     // add a.str
+     builder.append("'");
+     builder.append(a.str);
+     builder.append("', ");
+
+     // add a.integer
+     builder.append(String.valueOf(a.integer));
+     builder.append(" )");
+     return builder.toString();
+    }
+}
+```
+And then add record to sink.
+
+And add your sink like this:
+```java
+
+// create table props for sink
 Properties props = new Properties();
 props.put(ClickHouseSinkConsts.TARGET_TABLE_NAME, "your_table");
 props.put(ClickHouseSinkConsts.MAX_BUFFER_SIZE, "10000");
 
+// converter
+YourEventConverter converter = new YourEventConverter();       
+
 // build chain
 DataStream<YourEvent> dataStream = ...;
-dataStream.map(YourEventConverter::toClickHouseInsertFormat)
-          .name("convert YourEvent to ClickHouse table format")
-          .addSink(new ClickHouseSink(props))
+dataStream.addSink(new ClickHouseSink(props, converter))
           .name("your_table ClickHouse sink);
 ```
 
